@@ -12,7 +12,7 @@ dropout_rate: 0.0
 embed_dim: 10
 margin: 0.2
 margin_warmup_epochs: 6.0
-s: 30
+cos_scale: 30
 epochs: 20
 optim:
   amsgrad: true
