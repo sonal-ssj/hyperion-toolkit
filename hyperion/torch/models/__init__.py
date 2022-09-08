@@ -15,3 +15,4 @@ from .xvectors.resnet1d_xvector import ResNet1dXVector
 from .vae.vae import VAE
 from .vae.vq_vae import VQVAE
 from .denoiser.conv_tasnet import TasNet
+from .denoiser.conv_tasnet_v2 import TasNet as TasNet2 # Tasnet with more parameter updates
