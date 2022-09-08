@@ -15,7 +15,9 @@ import torch.nn as nn
 
 from ..utils import MetricAcc, TorchDDP
 from .xvector_trainer import XVectorTrainer
-from hyperion.torch.models import TasNet
+
+# from hyperion.torch.models import TasNet # Old TasNet
+from hyperion.torch.models import TasNet2 as TasNet # TasNet with updated parameters
 
 def toggle_grad(model, requires_grad):
     '''
@@ -25,24 +27,71 @@ def toggle_grad(model, requires_grad):
     for p in model.parameters():
         p.requires_grad_(requires_grad)
 
+
+# class Preprocessor_Denoiser(nn.Module):
+#     '''
+#     Takes in adversarial example input and returns adversarial noise only
+#     delta =  y - f(y)
+#     where, f(.) is the denoiser model, y is the 
+#     '''
+
+#     def __init__(self, denoiser_model_path,denoiser_model_load_string , denoiser_model_n_layers, denoiser_name_predict, device, audio_scale=2**15-1):
+#         super().__init__()
+#         self.denoiser_model_path = denoiser_model_path
+#         self.denoiser_model_load_string = denoiser_model_load_string
+#         self.denoiser_model_n_layers = denoiser_model_n_layers
+#         self.denoiser_name_predict = denoiser_name_predict
+#         self.model = self.get_model()
+#         self.audio_scale = audio_scale
+#         self.device = device
+
+#     def get_model(self):
+#         model = TasNet(num_spk=1, layer=self.denoiser_model_n_layers, enc_dim=128, stack=1, kernel=3, win=1, TCN_dilationFactor=2)
+#         model.load_state_dict(torch.load(self.denoiser_model_path, map_location=torch.device('cpu'))[self.denoiser_model_load_string])   
+#         toggle_grad(model, False)
+#         model.eval()
+#         logging.info(f'Denoiser Model weights loaded: {self.denoiser_model_path}')
+#         return model    
+
+    # def forward(self,x):
+    #     '''
+    #     x is input audio (adversarial example audio)
+    #     y is output from the denoiser (denoised audio ~ benign)
+    #     x-y is delta , adversarial noise only 
+    #     Note: x is assumed to be in audio_scale but denoiser needs it to be [-1,1] scale, the code handles this
+    #     '''
+
+
+    #     y = self.model(x / self.audio_scale) # y in [-1,1]
+    #     y = y * self.audio_scale # y in audio_scale
+    #     y = y.squeeze(1)
+    #     return x-y
+ 
 class Preprocessor_Denoiser(nn.Module):
     '''
     Takes in adversarial example input and returns adversarial noise only
     delta =  y - f(y)
-    where, f(.) is the denoiser model, y is the 
+    where, f(.) is the denoiser model, y is the adv example
     '''
 
-    def __init__(self, denoiser_model_path,denoiser_model_load_string , denoiser_model_n_layers, device, audio_scale=2**15-1):
+    def __init__(self, denoiser_model_path, denoiser_model_load_string, denoiser_model_G_num_speakers, denoiser_model_name_predict, denoiser_model_ctn_layer, denoiser_model_encoder_dim, denoiser_model_two_stream, denoiser_model_two_stream_use_benign, device, audio_scale=2**15-1):
         super().__init__()
         self.denoiser_model_path = denoiser_model_path
         self.denoiser_model_load_string = denoiser_model_load_string
-        self.denoiser_model_n_layers = denoiser_model_n_layers
-        self.model = self.get_model()
-        self.audio_scale = audio_scale
+        self.denoiser_model_name_predict = denoiser_model_name_predict
+        self.denoiser_model_G_num_speakers = denoiser_model_G_num_speakers
+        self.denoiser_model_ctn_layer = denoiser_model_ctn_layer 
+        self.denoiser_model_encoder_dim = denoiser_model_encoder_dim
+        self.denoiser_model_two_stream = denoiser_model_two_stream
+        self.denoiser_model_two_stream_use_benign = denoiser_model_two_stream_use_benign
         self.device = device
+        self.audio_scale = audio_scale
+        self.model = self.get_model()
+
 
     def get_model(self):
-        model = TasNet(num_spk=1, layer=self.denoiser_model_n_layers, enc_dim=128, stack=1, kernel=3, win=1, TCN_dilationFactor=2)
+        #model = TasNet(num_spk=1, layer=self.denoiser_model_n_layers, enc_dim=128, stack=1, kernel=3, win=1, TCN_dilationFactor=2)
+        model = TasNet(num_spk=self.denoiser_model_G_num_speakers, layer=self.denoiser_model_ctn_layer, enc_dim=self.denoiser_model_encoder_dim, stack=1, kernel=3, win=1, TCN_dilationFactor=2, masks_type='mul', masking_nonlinearity='sigmoid', audio_scale=self.audio_scale)
         model.load_state_dict(torch.load(self.denoiser_model_path, map_location=torch.device('cpu'))[self.denoiser_model_load_string])   
         toggle_grad(model, False)
         model.eval()
@@ -56,10 +105,46 @@ class Preprocessor_Denoiser(nn.Module):
         x-y is delta , adversarial noise only 
         Note: x is assumed to be in audio_scale but denoiser needs it to be [-1,1] scale, the code handles this
         '''
-        y = self.model(x / self.audio_scale) # y in [-1,1]
-        y = y * self.audio_scale # y in audio_scale
-        y = y.squeeze(1)
-        return x-y
+        if self.denoiser_model_name_predict=='B':
+            '''
+            Denoiser predicts benign signal ---
+            x is input audio (adversarial example audio)
+            y is output from the denoiser (denoised audio ~ benign)
+            x-y is delta , adversarial noise only (return it as z)
+            '''
+            y = self.model(x / self.audio_scale) # y in [-1,1]
+            y = y * self.audio_scale # y in audio_scale
+            y = y.squeeze(1)
+            z = x-y
+        
+        if self.denoiser_model_name_predict=='P':
+            '''
+            Denoiser predicts adv perturb signal
+            x is input audio (adversarial example audio)
+            y is output from the denoiser (predicted adv perturbation) (return it as z)
+            '''
+            y = self.model(x / self.audio_scale) # y in [-1,1]
+            y = y * self.audio_scale # y in audio_scale
+            z = y.squeeze(1)
+
+        if self.denoiser_model_name_predict=='BP':
+            '''
+            Denoiser predicts (ben, adv perturb) signal
+            x is input audio (adversarial example audio)
+            y is output from the denoiser (predicted adv perturbation) (return it as z)
+            '''
+            y = self.model(x / self.audio_scale) # y in [-1,1] ; y is two channel (B,P)
+            if len(y.shape) == 3 and self.denoiser_model_two_stream:   
+                if self.denoiser_model_two_stream_use_benign:               
+                    y = y[:,0,:] # Predicted benign
+                    y = y.squeeze(1)
+                    y = y * self.audio_scale # y in audio_scale
+                    z = x-y
+                else:
+                    y = y[:,1,:] # Predicted adv
+                    y = y.squeeze(1)
+                    z = y * self.audio_scale # y in audio_scale                 
+        return z
 
 class XVectorTrainerWithPreprocessorDenoiserFromWav(XVectorTrainer):
     """Trainer to train x-vector style models.
@@ -93,14 +178,19 @@ class XVectorTrainerWithPreprocessorDenoiserFromWav(XVectorTrainer):
          cpu_offload: CPU offload of gradients when using fully sharded ddp
          denoiser_nnet: Path to denoiser nnet checkpoint
          denoiser_model_load_string: String to load for denoiser
-         denoiser_model_n_layers : Integer number of layers in denoiser
+         denoiser_model_G_num_speakers: }
     """
     def __init__(self,
                 model,
                 feat_extractor,
-                denoiser_model_path,
-                denoiser_model_load_string,
-                denoiser_model_n_layers,
+                denoiser_model_path, 
+                denoiser_model_load_string, 
+                denoiser_model_G_num_speakers, 
+                denoiser_model_name_predict, 
+                denoiser_model_ctn_layer, 
+                denoiser_model_encoder_dim, 
+                denoiser_model_two_stream,
+                denoiser_model_two_stream_use_benign,
                 optim={},
                 epochs=100,
                 exp_path='./train',
@@ -159,9 +249,14 @@ class XVectorTrainerWithPreprocessorDenoiserFromWav(XVectorTrainer):
 
         self.denoiser_model_path = denoiser_model_path
         self.denoiser_model_load_string = denoiser_model_load_string
-        self.denoiser_model_n_layers = denoiser_model_n_layers
+        self.denoiser_model_G_num_speakers = denoiser_model_G_num_speakers
+        self.denoiser_model_ctn_layer = denoiser_model_ctn_layer
+        self.denoiser_model_name_predict = denoiser_model_name_predict
+        self.denoiser_model_encoder_dim = denoiser_model_encoder_dim
+        self.denoiser_model_two_stream = denoiser_model_two_stream
+        self.denoiser_model_two_stream_use_benign = denoiser_model_two_stream_use_benign
 
-        self.preproc_denoiser = Preprocessor_Denoiser(self.denoiser_model_path, self.denoiser_model_load_string , self.denoiser_model_n_layers , device).to(device)
+        self.preproc_denoiser = Preprocessor_Denoiser(self.denoiser_model_path, self.denoiser_model_load_string, self.denoiser_model_G_num_speakers, self.denoiser_model_name_predict, self.denoiser_model_ctn_layer, self.denoiser_model_encoder_dim, self.denoiser_model_two_stream , self.denoiser_model_two_stream_use_benign, device).to(device)
 
         # if ddp:
         #     self.feat_extractor = TorchDDP(self.feat_extractor)

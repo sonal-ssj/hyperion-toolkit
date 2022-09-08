@@ -126,7 +126,11 @@ class OrderedQueue(SequenceQueue):
         """Function to submit request to the executor and queue the `Future` objects."""
         sequence = list(range(len(self.sequence)))
         while True:
-            if self.scheduling is not "sequential":
+            #if self.scheduling is not "sequential":
+            # Sonal changed as it gave error
+            # /export/c05/sjoshi/codes/hyperion-toolkit/hyperion/utils/queues.py:129: 
+            # SyntaxWarning: "is not" with a literal. Did you mean "!="?
+            if self.scheduling != "sequential":
                 random.shuffle(sequence)
             for i in sequence:
                 if self.stop_signal.is_set():
