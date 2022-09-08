@@ -10,6 +10,11 @@
 # (2) Have trackable model names 
 # (3) Add additional parameter to  exisitng scripts `denoiser_model_name_predict`
 
+
+# Changes to default config: 
+# (1) Replaced `s` with `cos_scale` 
+# (2) Changed sign_nnet_batch_size_1gpu to 112 (from 128 default) due to CUDA error
+
 . ./cmd.sh
 . ./path.sh
 set -e
@@ -74,16 +79,8 @@ sign_dir=exp/signatures/$sign_nnet_reldir
 logits_dir=exp/logits/$sign_nnet_reldir
 sign_nnet=$sign_nnet_dir/model_ep0020.pth
 
-#torch-train-xvec-from-wav-with-preprocess-denoiser.py  \
 
-	# --denoiser_model_path $denoiser_model_path \
-    # --denoiser_model_load_string $denoiser_model_load_string \
-	# --denoiser_model_G_num_speakers $denoiser_model_G_num_speakers \
-	# --denoiser_model_name_predict $denoiser_model_name_predict \
-	# --denoiser_model_ctn_layer $denoiser_model_ctn_layer \
-	# --denoiser_model_encoder_dim $denoiser_model_encoder_dim \
-	# --denoiser_model_two_stream $denoiser_model_two_stream \
-	# --denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign \
+	
 
 # Network Training
 if [ $stage -le 1 ]; then
@@ -92,7 +89,7 @@ if [ $stage -le 1 ]; then
     mkdir -p $sign_nnet_dir/log
     $cuda_cmd --gpu $ngpu $sign_nnet_dir/log/train.log \
 	hyp_utils/conda_env.sh --conda-env $HYP_ENV --num-gpus $ngpu \
-	torch-train-xvec-from-wav.py  \
+	torch-train-xvec-from-wav-with-preprocess-denoiser.py  \
 	$sign_nnet_command --cfg $sign_nnet_config \
 	--audio-path $list_dir/trainval_wav.scp \
 	--time-durs-file $list_dir/trainval_utt2dur \
@@ -105,6 +102,14 @@ if [ $stage -le 1 ]; then
 	--num-gpus $ngpu \
 	--log-interval $log_interval \
 	--exp-path $sign_nnet_dir \
+	--denoiser_model_path $denoiser_model_path \
+    --denoiser_model_load_string $denoiser_model_load_string \
+	--denoiser_model_G_num_speakers $denoiser_model_G_num_speakers \
+	--denoiser_model_name_predict $denoiser_model_name_predict \
+	--denoiser_model_ctn_layer $denoiser_model_ctn_layer \
+	--denoiser_model_encoder_dim $denoiser_model_encoder_dim \
+	--denoiser_model_two_stream $denoiser_model_two_stream \
+	--denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign \
 	$args
 fi
 

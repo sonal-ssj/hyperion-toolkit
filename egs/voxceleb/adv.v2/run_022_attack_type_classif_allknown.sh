@@ -3,6 +3,11 @@
 #                2019   Johns Hopkins University (Author: Jesus Villalba)
 # Apache 2.0.
 #
+
+# Changes to default config: 
+# (1) Replaced `s` with `cos_scale` 
+# (2) Changed sign_nnet_batch_size_1gpu to 112 (from 128 default) due to CUDA error
+
 . ./cmd.sh
 . ./path.sh
 set -e
@@ -46,6 +51,7 @@ sign_nnet_dir=exp/sign_nnets/$sign_nnet_reldir
 sign_dir=exp/signatures/$sign_nnet_reldir
 logits_dir=exp/logits/$sign_nnet_reldir
 sign_nnet=$sign_nnet_dir/model_ep0020.pth
+
 
 # Network Training
 if [ $stage -le 1 ]; then
