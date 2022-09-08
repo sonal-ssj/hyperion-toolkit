@@ -9,7 +9,10 @@ In `torch-train-xvec-from-denoised-wav-noise.py` : We will obtain the adversaria
 adv_noise = adv_example - predicted_benign_example
 (Author: Sonal Joshi with inputs from Saurabh Kataria)
 """
+
 import sys
+print(sys.executable)
+
 import os
 from pathlib import Path
 from jsonargparse import ArgumentParser, ActionConfigFile, ActionParser, namespace_to_dict
@@ -115,9 +118,15 @@ def train_xvec(gpu_id, args):
 
     trainer = Trainer(model, feat_extractor,
                       device=device, metrics=metrics, 
-                      ddp=world_size>1, denoiser_model_path=args.denoiser_model_path, 
+                      ddp=world_size>1,
+                      denoiser_model_path=args.denoiser_model_path, 
                       denoiser_model_load_string=args.denoiser_model_load_string, 
-                      denoiser_model_n_layers=args.denoiser_model_n_layers,
+                      denoiser_model_G_num_speakers=args.denoiser_model_G_num_speakers,
+                      denoiser_model_name_predict=args.denoiser_model_name_predict,
+                      denoiser_model_ctn_layer=args.denoiser_model_ctn_layer,
+                      denoiser_model_encoder_dim=args.denoiser_model_encoder_dim,
+                      denoiser_model_two_stream=args.denoiser_model_two_stream,
+                      denoiser_model_two_stream_use_benign=args.denoiser_model_two_stream_use_benign,
                       **trn_args)
 
     if args.resume:
@@ -155,10 +164,15 @@ def make_parser(xvec_class):
     parser.add_argument('-v', '--verbose', dest='verbose', default=1, 
                         choices=[0, 1, 2, 3], type=int) 
 
+    # Denoiser arguments
     parser.add_argument('--denoiser_model_path', default=None, type=str, help='Path to denoiser model')
     parser.add_argument('--denoiser_model_load_string', default=None, type=str, help='Denoiser model load string, For example G, model_state_dict')
-    parser.add_argument('--denoiser_model_n_layers', default=None, type=int, help='Denoiser model number of layers')
-
+    parser.add_argument('--denoiser_model_G_num_speakers', default=1, type=int, help='Denoiser model number of speakers, here streams')
+    parser.add_argument('--denoiser_model_ctn_layer', default=8, type=int, help='Denoiser model number of layers')
+    parser.add_argument('--denoiser_model_name_predict', default=None, type=str, help='Denoiser model predicts benign or adv perturb')
+    parser.add_argument('--denoiser_model_encoder_dim', default=128, type=int, help='Denoiser model encoder dim')
+    parser.add_argument('--denoiser_model_two_stream', default=False, type=bool, help='Is Denoiser model two stream?')
+    parser.add_argument('--denoiser_model_two_stream_use_benign', default=False, type=bool, help='If the Denoiser model two stream, use benign to predict adv perturb or use it directly')
     return parser
 
 
