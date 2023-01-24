@@ -141,6 +141,8 @@ class TransformerEncoderV1(NetArch):
         hid_act = AF.create(self.hid_act)
 
         if self.in_layer_type == "linear":
+            print(f"in_feats = {in_feats}")
+            print(f"d_model = {d_model}")
             self.in_layer = nn.Sequential(
                 nn.Linear(in_feats, d_model),
                 nn.LayerNorm(d_model),

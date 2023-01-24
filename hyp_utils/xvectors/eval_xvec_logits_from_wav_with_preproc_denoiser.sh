@@ -29,10 +29,9 @@ echo "$0 $@"  # Print the command line for logging
 if [ -f path.sh ]; then . ./path.sh; fi
 . parse_options.sh || exit 1;
 
-
 if [ $# != 3 ] && [ $# != 4 ]; then
-  echo "Usage: $0 [options] <nnet-model> <data> <xvector-dir> [<data-out-dir>]"
-  echo " e.g.: $0 --feat-config conf/fbank_mvn.yml --aug-config conf/noise_aug.yml exp/xvector_nnet/model.pt data/train exp/xvectors_train [data/train_aug]"
+  echo "Usage: $0 [options] <nnet-model> <data> <logits-dir> [<data-out-dir>]"
+  echo " e.g.: $0 --feat-config conf/fbank_mvn.pyconf --aug-config conf/noise_aug.yml exp/xvector_nnet/model.pt data/train exp/logits_train [data/train_aug]"
   echo "main options (for others, see top of script file)"
   echo "  --cmd (utils/run.pl|utils/queue.pl <queue opts>) # how to run jobs."
   echo "  --use-gpu <bool|false>                           # If true, use GPU."
@@ -55,7 +54,8 @@ if [ $# != 3 ] && [ $# != 4 ]; then
   echo "  --denoiser_model_encoder_dim                     # Denoiser model encoder dim" 
   echo "  --denoiser_model_two_stream                      # Denoiser model two stream?" 
   echo "  --denoiser_model_two_stream_use_benign           # Denoiser model two stream use benign or subtract" 
-  echo "  --denoiser_model_name_predict                    # What does the trained denoiser predict? choices={'B','P','BP'} for {'benign','adv perturb','benign,adv perturb'}"
+  echo "  --denoiser_model_name_predict                    # What does the trained denoiser predict? choices={'B','P','BP'} for {'benign','adv perturb','benign,adv perturb'}" 
+
 fi
 
 nnet_file=$1
@@ -97,50 +97,50 @@ if [ "$write_utt2num_frames" == "true" ];then
 fi
 
 
-# if [ -n "$denoiser_model_path" ];then
-#     args="${args} --denoiser_model_path $denoiser_model_path"
-# fi
+if [ -n "$denoiser_model_path" ];then
+    args="${args} --denoiser_model_path $denoiser_model_path"
+fi
 
-# if [ -n "$denoiser_model_load_string" ];then
-#     args="${args} --denoiser_model_load_string $denoiser_model_load_string"
-# fi
+if [ -n "$denoiser_model_load_string" ];then
+    args="${args} --denoiser_model_load_string $denoiser_model_load_string"
+fi
 
-# if [ -n "$denoiser_model_name_predict" ];then
-#     args="${args} --denoiser_model_name_predict $denoiser_model_name_predict"
-# fi
-
-
-# if [ -n "$denoiser_model_G_num_speakers" ];then
-#     args="${args} --denoiser_model_G_num_speakers $denoiser_model_G_num_speakers"
-# fi
+if [ -n "$denoiser_model_name_predict" ];then
+    args="${args} --denoiser_model_name_predict $denoiser_model_name_predict"
+fi
 
 
-# if [ -n "$denoiser_model_ctn_layer" ];then
-#     args="${args} --denoiser_model_ctn_layer $denoiser_model_ctn_layer"
-# fi
+if [ -n "$denoiser_model_G_num_speakers" ];then
+    args="${args} --denoiser_model_G_num_speakers $denoiser_model_G_num_speakers"
+fi
 
 
-# if [ -n "$denoiser_model_encoder_dim" ];then
-#     args="${args} --denoiser_model_encoder_dim $denoiser_model_encoder_dim"
-# fi
+if [ -n "$denoiser_model_ctn_layer" ];then
+    args="${args} --denoiser_model_ctn_layer $denoiser_model_ctn_layer"
+fi
 
 
-# if [ -n "$denoiser_model_two_stream" ];then
-#     args="${args} --denoiser_model_two_stream $denoiser_model_two_stream"
-# fi
+if [ -n "$denoiser_model_encoder_dim" ];then
+    args="${args} --denoiser_model_encoder_dim $denoiser_model_encoder_dim"
+fi
 
 
-# if [ -n "$denoiser_model_two_stream_use_benign" ];then
-#     args="${args} --denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign"
-# fi
+if [ -n "$denoiser_model_two_stream" ];then
+    args="${args} --denoiser_model_two_stream $denoiser_model_two_stream"
+fi
 
+
+
+if [ -n "$denoiser_model_two_stream_use_benign" ];then
+    args="${args} --denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign"
+fi
 
 if [ $stage -le 0 ];then
     echo "Stage 0"
     set +e
-    $cmd JOB=1:$nj $output_dir/log/extract_xvectors.JOB.log \
+    $cmd JOB=1:$nj $output_dir/log/eval_logits.JOB.log \
 	hyp_utils/conda_env.sh --num-gpus $num_gpus \
-	torch-extract-xvectors-from-wav-with-preproc-denoiser.py \
+	torch-eval-xvec-logits-from-wav_with_preproc_denoiser.py \
 	--feats $feat_config ${args} $write_num_frames_opt \
 	--part-idx JOB --num-parts $nj \
 	--input $data_dir/wav.scp \
@@ -153,51 +153,16 @@ if [ $stage -le 0 ];then
     --denoiser_model_encoder_dim $denoiser_model_encoder_dim \
     --denoiser_model_two_stream $denoiser_model_two_stream \
     --denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign \
-	--output ark,scp:$output_dir/xvector.JOB.ark,$output_dir/xvector.JOB.scp
-    set -e
+	--output ark,scp:$output_dir/logits.JOB.ark,$output_dir/logits.JOB.scp || exit 1;
 fi
 
-
-if [ $stage -le 1 ];then
-    echo "Stage 1"
-    for((i=1;i<=$nj;i++))
-    do
-	status=$(tail -n 1 $output_dir/log/extract_xvectors.$i.log | \
-			awk '/status 0/ { print 0} 
-                            !/status 0/ { print 1}')
-	if [ $status -eq 1 ];then
-	    echo "JOB $i failed, resubmitting"
-	    if [ "$write_utt2num_frames" == "true" ];then
-		write_num_frames_opt="--write-num-frames $output_dir/utt2num_frames.$i"
-	    fi
-	    $cmd $output_dir/log/extract_xvectors.$i.log \
-		 hyp_utils/conda_env.sh --num-gpus $num_gpus \
-		 torch-extract-xvectors-from-wav-with-preproc-denoiser.py \
-		 --feats $feat_config ${args} $write_num_frames_opt \
-		 --part-idx $i --num-parts $nj \
-		 --input $data_dir/wav.scp \
-		 --model-path $nnet_file --chunk-length $chunk_length \
-        --denoiser_model_path $denoiser_model_path \
-        --denoiser_model_load_string $denoiser_model_load_string \
-        --denoiser_model_name_predict $denoiser_model_name_predict \
-        --denoiser_model_G_num_speakers $denoiser_model_G_num_speakers \
-        --denoiser_model_ctn_layer $denoiser_model_ctn_layer \
-        --denoiser_model_encoder_dim $denoiser_model_encoder_dim \
-        --denoiser_model_two_stream $denoiser_model_two_stream \
-        --denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign \        
-		 --output ark,scp:$output_dir/xvector.$i.ark,$output_dir/xvector.$i.scp &
-	fi
-    done
-    wait
-fi
-
-if [ $stage -le 2 ]; then
-  echo "Stage 2"
-  echo "$0: combining xvectors across jobs"
-  for j in $(seq $nj); do cat $output_dir/xvector.$j.scp; done > $output_dir/xvector.scp || exit 1;
+if [ $stage -le 1 ]; then
+  echo "Stage 1"
+  echo "$0: combining logits across jobs"
+  for j in $(seq $nj); do cat $output_dir/logits.$j.scp; done > $output_dir/logits.scp || exit 1;
   if [ "$write_utt2num_frames" == "true" ];then
       for n in $(seq $nj); do
-          cat $output_dir/utt2num_frames.$n || exit 1;
+	  cat $output_dir/utt2num_frames.$n || exit 1;
       done > $output_dir/utt2num_frames || exit 1
   fi
 
@@ -205,44 +170,43 @@ if [ $stage -le 2 ]; then
       cat $output_dir/aug_info.1.csv > $output_dir/aug_info.csv
       for j in $(seq 2 $nj);
       do
-          tail -n +2 $output_dir/aug_info.$j.csv
+	  tail -n +2 $output_dir/aug_info.$j.csv
       done >> $output_dir/aug_info.csv
   fi
 fi
 
-if [ $stage -le 3 ]; then
-    echo "Stage 3"
+if [ $stage -le 2 ]; then
+    echo "Stage 2"
     if [ -n "$data_out_dir" ];then
-        echo "$0: creating data dir $data_out_dir for augmented x-vectors"
-        mkdir -p $data_out_dir
-        awk -F "," '$1 != "key_aug" { print $1,$2}' $output_dir/aug_info.csv \
-        > $data_out_dir/augm2clean
-        awk -v u2s=$data_dir/utt2spk 'BEGIN{
+	echo "$0: creating data dir $data_out_dir for augmented x-vectors"
+	mkdir -p $data_out_dir
+	awk -F "," '$1 != "key_aug" { print $1,$2}' $output_dir/aug_info.csv \
+	> $data_out_dir/augm2clean 
+	awk -v u2s=$data_dir/utt2spk 'BEGIN{
 while(getline < u2s)
 {
    spk[$1]=$2
 }
 }
 { print $1,spk[$2]}' $data_out_dir/augm2clean > $data_out_dir/utt2spk
-        utils/utt2spk_to_spk2utt.pl $data_out_dir/utt2spk > $data_out_dir/spk2utt
-        cp $output_dir/utt2num_frames $data_out_dir
+	utils/utt2spk_to_spk2utt.pl $data_out_dir/utt2spk > $data_out_dir/spk2utt
+	#cp $output_dir/utt2num_frames $data_out_dir/utt2num_frames_logits
     else
         echo "Checking if File exists..."
-        echo $data_dir/utt2num_frames
-        if [ ! -f $data_dir/utt2num_frames ]
+        echo $data_dir/utt2num_frames_logits
+        if [ ! -f $data_dir/utt2num_frames_logits ]
         then
             echo "File does not exist in Bash"
-            cp $output_dir/utt2num_frames $data_dir/utt2num_frames
+            #cp $output_dir/utt2num_frames $data_dir/utt2num_frames_logits
+            echo "Warning: Original script did cp $output_dir/utt2num_frames $data_dir/utt2num_frames_logits"
+            echo "But we are skipping it as mostly $data_dir is not writable "
         else
             echo "File already found. No need to copy again"
-            echo "Warning: Original script did cp $output_dir/utt2num_frames $data_dir"
+            echo "Warning: Original script did cp $output_dir/utt2num_frames $data_dir/utt2num_frames_logits"
             echo "But we are skipping it as mostly $data_dir is not writable and the files are essentially the same "
             echo "------ diff output <start> -----"
-            diff $output_dir/utt2num_frames $data_dir/utt2num_frames
+            diff $output_dir/utt2num_frames_logits $data_dir/utt2num_frames_logits
             echo "------ diff output <end>-----"
         fi
-        
-        #cp $output_dir/utt2num_frames $data_dir # Sonal commented
     fi
 fi
-
