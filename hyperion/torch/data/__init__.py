@@ -8,6 +8,7 @@ from .feat_seq_dataset import FeatSeqDataset
 from .paired_feat_seq_dataset import PairedFeatSeqDataset
 
 from .audio_dataset import AudioDataset
+from .audio_dataset import AudioDataset2
 
 # samplers
 from .weighted_seq_sampler import ClassWeightedSeqSampler
