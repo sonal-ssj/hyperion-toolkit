@@ -26,7 +26,7 @@ spkv_attacks_common_opts="--save-failed" #save failed attacks also
 # Attack model LResNet34 configuration
 sign_nnet_command=resnet
 # sign_nnet_config=conf/lresnet34_atnet.yaml
-sign_nnet_config=conf/lresnet34_atnet_two_stream.yaml
+sign_nnet_config=conf/lresnet34_atnet_two_stream_v2.yaml
 sign_nnet_batch_size_1gpu=32 # Changing to fit in memory
 sign_nnet_eff_batch_size=512 # effective batch size
 sign_nnet_name=lresnet34

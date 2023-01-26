@@ -114,8 +114,9 @@ fi
 
 if [ $stage -le 2 ]; then
     echo "Extract signatures on the test set"
-    mkdir -p $list_dir/test
-    cp $list_dir/test_wav.scp $list_dir/test/wav.scp
+	echo "No need to create new list  wav.scp files"
+    # mkdir -p $list_dir/test
+    # cp $list_dir/test_wav.scp $list_dir/test/wav.scp
 	#nj=100
     nj=50 # Reducing number of jobs because otherwise jobs go to error state in CLSP grid
     steps_xvec/extract_xvectors_from_wav_with_preproc_denoiser.sh \
@@ -128,6 +129,7 @@ if [ $stage -le 2 ]; then
 	--denoiser_model_ctn_layer $denoiser_model_ctn_layer \
 	--denoiser_model_encoder_dim $denoiser_model_encoder_dim \
 	--denoiser_model_two_stream $denoiser_model_two_stream \
+	--denoiser_model_two_stream_use_benign $denoiser_model_two_stream_use_benign \
     $sign_nnet $list_dir/test \
 	$sign_dir/test
 fi

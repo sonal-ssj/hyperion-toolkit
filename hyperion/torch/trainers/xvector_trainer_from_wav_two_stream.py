@@ -143,7 +143,29 @@ class XVectorTrainerFromWavTwoStream(XVectorTrainer):
                 #feats = self.feat_extractor(data)
                 featsA = self.feat_extractor(dataA)
                 featsB = self.feat_extractor(dataB)
-                feats = torch.cat((featsA, featsB), axis=1)
+                if self.model.in_channels==1:
+                    feats = torch.cat((featsA, featsB), axis=1)
+                elif self.model.in_channels==2:
+                    feats = torch.cat((featsA.unsqueeze(1), featsB.unsqueeze(1)), axis=1)
+                else:
+                    logging.error('self.model.in_channels must be 1 or 2, others not implemented')
+
+                # try:
+                #     logging.info('self.model={}'.format(self.model))
+                # except:
+                #     logging.info('Logging info failed')
+                # try:
+                #     logging.info('self.model.get_config()["in_channels"]={}'.format(self.model.get_config()["in_channels"]))    
+                # except:
+                #     logging.info('Logging info failed')
+                # try:
+                #     logging.info('self.model.in_channels={}'.format(self.model.in_channels))
+                # except:
+                #     logging.info('Logging info failed')
+                # try:
+                #     logging.info('self.model["in_channels"]={}'.format(self.model["in_channels"]))
+                # except:
+                #     logging.info('Logging info failed')
 
             with self.amp_autocast():
                 output = self.model(feats, target)
@@ -193,7 +215,17 @@ class XVectorTrainerFromWavTwoStream(XVectorTrainer):
                 data, target = data.to(self.device), target.to(self.device)
                 batch_size = data.shape[0]
 
-                feats = self.feat_extractor(data)
+                # feats = self.feat_extractor(data)
+                dataA, dataB = data[:,0], data[:,1]
+                featsA = self.feat_extractor(dataA)
+                featsB = self.feat_extractor(dataB)
+                if self.model.in_channels==1:
+                    feats = torch.cat((featsA, featsB), axis=1)
+                elif self.model.in_channels==2:
+                    feats = torch.cat((featsA.unsqueeze(1), featsB.unsqueeze(1)), axis=1)
+                else:
+                    logging.error('self.model.in_channels must be 1 or 2, others not implemented')
+                    
                 with self.amp_autocast():
                     output = self.model(feats, **self.amp_args)
                     loss = self.loss(output, target)

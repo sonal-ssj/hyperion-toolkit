@@ -5,8 +5,7 @@
 #
 
 # Script to train two stream signature extractor using oracle noise 
-# Takes in concated features
-
+# Takes in features in two channels
 
 # Changes to default config: 
 # (1) Replaced `s` with `cos_scale` 
@@ -28,7 +27,7 @@ stage=1
 ngpu=1
 # config_file=default_config.sh
 # config_file=default_config_reduced_batch_size.sh
-config_file=default_config_reduced_batch_size_32_two_stream.sh #->> concat feats
+config_file=default_config_reduced_batch_size_32_two_stream_v2.sh ## ->> 2 channels
 resume=false
 interactive=false
 num_workers=4
@@ -61,7 +60,7 @@ if [ "$interactive" == "true" ];then
     export cuda_cmd=run.pl
 fi
 
-sign_nnet_reldir=$spknet_name/$sign_nnet_name/$attack_type_split_tag"_two_stream_oracle_noDenoiser"
+sign_nnet_reldir=$spknet_name/$sign_nnet_name/$attack_type_split_tag"_two_stream_oracle_noDenoiser_v2"
 sign_nnet_dir=exp/sign_nnets/$sign_nnet_reldir
 sign_dir=exp/signatures/$sign_nnet_reldir
 logits_dir=exp/logits/$sign_nnet_reldir
