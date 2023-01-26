@@ -767,9 +767,9 @@ class AudioDataset2(Dataset):
         fs = fs[0]
 
         x_clean = x
-        logging.info("hola1")
+        #logging.info("hola1")
         if self.augmenter is not None:
-            logging.info("hola2")
+            #logging.info("hola2")
             chunk_length_samples = int(chunk_length * fs)
             end_idx = len(x)
             reverb_context_samples = end_idx - chunk_length_samples
@@ -824,9 +824,9 @@ class AudioDataset2(Dataset):
         fs2 = fs2[0]
 
         x_clean2 = x2
-        logging.info("hola1")
+        #logging.info("hola1")
         if self.augmenter is not None:
-            logging.info("hola2")
+            #logging.info("hola2")
             chunk_length_samples = int(chunk_length * fs)
             end_idx = len(x)
             reverb_context_samples = end_idx - chunk_length_samples
@@ -903,6 +903,494 @@ class AudioDataset2(Dataset):
         # parser.add_argument('--path-prefix',
         #                     default='',
         #                     help=('path prefix for rspecifier scp file'))
+
+        parser.add_argument(
+            "--class-file",
+            default=None,
+            help=("ordered list of classes keys, it can contain class weights"),
+        )
+
+        parser.add_argument(
+            "--time-durs-file", default=None, help=("utt to duration in secs file")
+        )
+
+        parser.add_argument(
+            "--time-durs-file2", default=None, help=("utt to duration in secs file")
+        )
+
+        parser.add_argument(
+            "--min-chunk-length",
+            type=float,
+            default=None,
+            help=("minimum length of sequence chunks"),
+        )
+        parser.add_argument(
+            "--max-chunk-length",
+            type=float,
+            default=None,
+            help=("maximum length of sequence chunks"),
+        )
+
+        parser.add_argument(
+            "--return-fullseqs",
+            default=False,
+            action="store_true",
+            help=("returns full sequences instead of chunks"),
+        )
+
+        AR.add_class_args(parser)
+        if prefix is not None:
+            outer_parser.add_argument("--" + prefix, action=ActionParser(parser=parser))
+            # help='audio dataset options')
+
+    add_argparse_args = add_class_args
+
+
+
+
+
+
+class AudioDataset3(Dataset):
+    '''
+    this one loads two parallel corpus as two-stream data
+    '''
+    def __init__(
+        self,
+        audio_path,
+        audio_path2,
+        key_file,
+        key_file2,
+        class_file=None,
+        time_durs_file=None,
+        time_durs_file2=None,
+        min_chunk_length=1,
+        max_chunk_length=None,
+        aug_cfg=None,
+        return_fullseqs=False,
+        return_class=True,
+        return_clean_aug_pair=False,
+        transpose_input=False,
+        wav_scale=2 ** 15 - 1,
+        is_val=False,
+        return_key=False
+    ):
+
+        try:
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
+        except:
+            rank = 0
+            world_size = 1
+
+        self.rank = rank
+        self.world_size = world_size
+
+        if rank == 0:
+            logging.info("opening dataset %s" % f'{audio_path} and {audio_path2}')
+
+        self.r = AR(audio_path, wav_scale=wav_scale)
+        self.r2 = AR(audio_path2, wav_scale=wav_scale)
+
+        if rank == 0:
+            logging.info("loading utt2info file %s" % f'{key_file} and {key_file2}')
+
+        self.u2c = Utt2Info.load(key_file, sep=" ")
+        self.u2c_old = deepcopy(self.u2c)
+     
+        if rank == 0:
+            logging.info("dataset contains %d seqs" % self.num_seqs)
+
+        self.is_val = is_val
+        self._read_time_durs_file2(time_durs_file, time_durs_file2)
+
+        #self._seq_lengths = self.r.read_time_duration(self.u2c.key)
+        self._prune_short_seqs(min_chunk_length)
+
+        self.short_seq_exist = self._seq_shorter_than_max_length_exists(
+            max_chunk_length
+        )
+
+        self._prepare_class_info(class_file)
+
+        if max_chunk_length is None:
+            max_chunk_length = min_chunk_length
+        self._min_chunk_length = min_chunk_length
+        self._max_chunk_length = max_chunk_length
+
+        self.return_fullseqs = return_fullseqs
+        self.return_class = return_class
+        self.return_clean_aug_pair = return_clean_aug_pair
+
+        self.transpose_input = transpose_input
+
+        self.augmenter = None
+        self.reverb_context = 0
+        if aug_cfg is not None:
+            self.augmenter = SpeechAugment.create(
+                aug_cfg, random_seed=112358 + 1000 * rank
+            )
+            self.reverb_context = self.augmenter.max_reverb_context
+        self.return_key = return_key
+
+    def _read_time_durs_file2(self, file_path, file_path2):
+        if self.rank == 0:
+            logging.info("reading time_durs file %s" % f'{file_path} and {file_path2}')
+        nf_df = pd.read_csv(file_path, header=None, sep=" ")
+        nf_df.index = nf_df[0]
+        nf_df2 = pd.read_csv(file_path2, header=None, sep=" ")
+        nf_df2.index = nf_df2[0]
+        self._seq_lengths = np.minimum(nf_df.loc[self.u2c_old.key, 1].values, nf_df2.loc[self.u2c.key, 1].values)   # to take care of potential length mismatches; hopefully they are less
+
+
+    @property
+    def wav_scale(self):
+        return self.r.wav_scale
+
+    @property
+    def num_seqs(self):
+        return len(self.u2c)
+
+    def __len__(self):
+        return self.num_seqs
+
+    @property
+    def seq_lengths(self):
+        return self._seq_lengths
+
+    @property
+    def total_length(self):
+        return np.sum(self.seq_lengths)
+
+    @property
+    def min_chunk_length(self):
+        if self.return_fullseqs:
+            self._min_chunk_length = np.min(self.seq_lengths)
+        return self._min_chunk_length
+
+    @property
+    def max_chunk_length(self):
+        if self._max_chunk_length is None:
+            self._max_chunk_length = np.max(self.seq_lengths)
+        return self._max_chunk_length
+
+    @property
+    def min_seq_length(self):
+        return np.min(self.seq_lengths)
+
+    @property
+    def max_seq_length(self):
+        return np.max(self.seq_lengths)
+
+    def _prune_short_seqs(self, min_length):
+        if self.rank == 0:
+            logging.info("pruning short seqs")
+        keep_idx = self.seq_lengths >= min_length
+        self.u2c = self.u2c.filter_index(keep_idx)
+        self._seq_lengths = self.seq_lengths[keep_idx]
+        if self.rank == 0:
+            logging.info(
+                "pruned seqs with min_length < %f,"
+                "keep %d/%d seqs" % (min_length, self.num_seqs, len(keep_idx))
+            )
+
+    def _prepare_class_info(self, class_file):
+        class_weights = None
+        if class_file is None:
+            classes, class_idx = np.unique(self.u2c.info, return_inverse=True)
+            class2idx = {k: i for i, k in enumerate(classes)}
+        else:
+            if self.rank == 0:
+                logging.info("reading class-file %s" % (class_file))
+            class_info = pd.read_csv(class_file, header=None, sep=" ")
+            class2idx = {str(k): i for i, k in enumerate(class_info[0])}
+            class_idx = np.array([class2idx[k] for k in self.u2c.info], dtype=int)
+            if class_info.shape[1] == 2:
+                class_weights = np.array(class_info[1]).astype(
+                    floatstr_torch(), copy=False
+                )
+
+        self.num_classes = len(class2idx)
+
+        class2utt_idx = {}
+        class2num_utt = np.zeros((self.num_classes,), dtype=int)
+
+        for k in range(self.num_classes):
+            idx = (class_idx == k).nonzero()[0]
+            class2utt_idx[k] = idx
+            class2num_utt[k] = len(idx)
+            if class2num_utt[k] == 0:
+                if not self.is_val:
+                    logging.warning("class %d doesn't have any samples" % (k))
+                if class_weights is None:
+                    class_weights = np.ones((self.num_classes,), dtype=floatstr_torch())
+                class_weights[k] = 0
+
+        count_empty = np.sum(class2num_utt == 0)
+        if count_empty > 0:
+            logging.warning("%d classes have 0 samples" % (count_empty))
+
+        self.utt_idx2class = class_idx
+        self.class2utt_idx = class2utt_idx
+        self.class2num_utt = class2num_utt
+        if class_weights is not None:
+            class_weights /= np.sum(class_weights)
+            class_weights = torch.Tensor(class_weights)
+        self.class_weights = class_weights
+
+        if self.short_seq_exist:
+            # if there are seq shorter than max_chunk_lenght we need some extra variables
+            # we will need class_weights to put to 0 classes that have all utts shorter than the batch chunk length
+            if self.class_weights is None:
+                self.class_weights = torch.ones((self.num_classes,))
+
+            # we need the max length of the utterances of each class
+            class2max_length = torch.zeros((self.num_classes,), dtype=torch.float)
+            for c in range(self.num_classes):
+                if class2num_utt[c] > 0:
+                    class2max_length[c] = np.max(
+                        self.seq_lengths[self.class2utt_idx[c]]
+                    )
+
+            self.class2max_length = class2max_length
+
+    def _seq_shorter_than_max_length_exists(self, max_length):
+        return np.any(self.seq_lengths < max_length)
+
+    @property
+    def var_chunk_length(self):
+        return self.min_chunk_length < self.max_chunk_length
+
+    def get_random_chunk_length(self):
+
+        if self.var_chunk_length:
+            return (
+                torch.rand(size=(1,)).item()
+                * (self.max_chunk_length - self.min_chunk_length)
+                + self.min_chunk_length
+            )
+
+        return self.max_chunk_length
+
+    def __getitem__(self, index):
+        # logging.info('{} {} {} get item {}'.format(
+        #     self, os.getpid(), threading.get_ident(), index))
+        if self.return_fullseqs:
+            return self._get_fullseq(index)
+        else:
+            return self._get_random_chunk(index)
+
+    def _get_fullseq(self, index):
+        key = self.u2c.key[index]
+        # first dataset
+        x, fs = self.r.read([key])
+        x = x[0].astype(floatstr_torch(), copy=False)
+        x_clean = x
+        if self.augmenter is not None:
+            x, aug_info = self.augmenter(x)
+
+        if self.transpose_input:
+            x = x[None, :]
+            if self.return_clean_aug_pair:
+                x_clean = x_clean[None, :]
+
+        if self.return_clean_aug_pair:
+            r = x, x_clean
+
+        if self.return_class:
+            class_idx = self.utt_idx2class[index]
+            r = *r, class_idx
+        if self.return_key:     # new outputs will be at the end
+            r = (*r, key) if isinstance(r, tuple) else (r, key)
+
+        # second dataset
+        x2, fs2 = self.r2.read([key])
+        x2 = x2[0].astype(floatstr_torch(), copy=False)
+        x_clean2 = x2
+        if self.augmenter is not None:
+            x2, aug_info = self.augmenter(x2)
+
+        if self.transpose_input:
+            x2 = x2[None, :]
+            if self.return_clean_aug_pair:
+                x_clean2 = x_clean2[None, :]
+
+        if self.return_clean_aug_pair:
+            r2 = x2, x_clean2
+            # Concat r and r2 to get r3
+            r3 = x.concat(x2), x_clean.concat(x_clean2)
+
+        if self.return_class:
+            class_idx = self.utt_idx2class[index]
+            r2 = *r2, class_idx
+            # Concat r and r2 to get r3
+            r3 = "NotImplemented"
+        if self.return_key:     # new outputs will be at the end
+            r2 = (*r2, key) if isinstance(r2, tuple) else (r2, key)
+            # Concat r and r2 to get r3
+            r3 = r.concat(r2)
+
+        return r3
+
+    def _get_random_chunk(self, index):
+
+        if len(index) == 2:
+            index, chunk_length = index
+        else:
+            chunk_length = self.max_chunk_length
+
+        key = self.u2c.key[index]
+
+        full_seq_length = self.seq_lengths[index]
+        assert (
+            chunk_length <= full_seq_length
+        ), "chunk_length(%d) <= full_seq_length(%d)" % (chunk_length, full_seq_length)
+
+        time_offset = torch.rand(size=(1,)).item() * (full_seq_length - chunk_length)
+        reverb_context = min(self.reverb_context, time_offset)
+        time_offset -= reverb_context
+        read_chunk_length = chunk_length + reverb_context
+
+        # logging.info('get-random-chunk {} {} {} {} {}'.format(index, key, time_offset, chunk_length, full_seq_length ))
+        # first dataset
+
+        x, fs = self.r.read([key], time_offset=time_offset, time_durs=read_chunk_length)
+
+
+        x = x[0]
+        fs = fs[0]
+
+        x_clean = x
+        #logging.info("hola1")
+        if self.augmenter is not None:
+            #logging.info("hola2")
+            chunk_length_samples = int(chunk_length * fs)
+            end_idx = len(x)
+            reverb_context_samples = end_idx - chunk_length_samples
+            assert reverb_context_samples >= 0, (
+                "key={} time-offset={}, read-chunk={} "
+                "read-x-samples={}, chunk_samples={}, reverb_context_samples={}"
+            ).format(
+                key,
+                time_offset,
+                read_chunk_length,
+                end_idx,
+                chunk_length_samples,
+                reverb_context_samples,
+            )
+            # end_idx = reverb_context_samples + chunk_length_samples
+            x, aug_info = self.augmenter(x)
+            x = x[reverb_context_samples:end_idx]
+            if self.return_clean_aug_pair:
+                x_clean = x_clean[reverb_context_samples:end_idx]
+                x_clean = x_clean.astype(floatstr_torch(), copy=False)
+
+
+        if self.transpose_input:
+            x = x[None, :]
+            if self.return_clean_aug_pair:
+                x_clean = x_clean[None, :]
+
+        x = x.astype(floatstr_torch(), copy=False)
+        if self.return_clean_aug_pair:
+            r = x, x_clean
+        else:
+            r = (x,)
+
+        if self.return_class:
+            class_idx = self.utt_idx2class[index]
+            r = *r, class_idx
+
+        if self.return_key:     # new outputs will be at the end
+            r = (*r, key) if isinstance(r, tuple) else (r, key)
+      
+        # second dataset
+        x2, fs2 = self.r2.read([key], time_offset=time_offset, time_durs=read_chunk_length)
+
+        x2 = x2[0]
+        fs2 = fs2[0]
+
+        x_clean2 = x2
+        #logging.info("hola1")
+        if self.augmenter is not None:
+            #logging.info("hola2")
+            chunk_length_samples = int(chunk_length * fs)
+            end_idx = len(x)
+            reverb_context_samples = end_idx - chunk_length_samples
+            assert reverb_context_samples >= 0, (
+                "key={} time-offset={}, read-chunk={} "
+                "read-x-samples={}, chunk_samples={}, reverb_context_samples={}"
+            ).format(
+                key,
+                time_offset,
+                read_chunk_length,
+                end_idx,
+                chunk_length_samples,
+                reverb_context_samples,
+            )
+            # end_idx = reverb_context_samples + chunk_length_samples
+            x2, aug_info = self.augmenter(x2)
+            x2 = x2[reverb_context_samples:end_idx]
+            if self.return_clean_aug_pair:
+                x_clean2 = x_clean2[reverb_context_samples:end_idx]
+                x_clean2 = x_clean2.astype(floatstr_torch(), copy=False)
+
+
+        if self.transpose_input:
+            x2 = x2[None, :]
+            if self.return_clean_aug_pair:
+                x_clean2 = x_clean2[None, :]
+
+        x2 = x2.astype(floatstr_torch(), copy=False)
+        if self.return_clean_aug_pair:
+            r2 = x2, x_clean2
+            # Concat r and r2 to get r3
+            r3 = x.concat(x2), x_clean.concat(x_clean2)
+        else:
+            r2 = (x2,)
+            # Concat r and r2 to get r3
+            r3 = (r,r2)
+
+        if self.return_class:
+            class_idx = self.utt_idx2class[index]
+            r2 = *r2, class_idx
+            # Concat r and r2 to get r3
+            assert r[1] == r2[1]
+            # logging.info('r[0].shape {}'.format(r[0].shape))
+            # logging.info('r2[0].shape {}'.format(r2[0].shape))
+            r3_tmp = np.vstack((r[0],r2[0]))
+            # logging.info('r3_tmp.shape {}'.format(r3_tmp.shape))
+            r3 = (r3_tmp,  r[1])
+
+        if self.return_key:     # new outputs will be at the end
+            r2 = (*r2, key) if isinstance(r2, tuple) else (r2, key)
+            # Concat r and r2 to get r3
+            r3 = (r,r2)
+        return r3
+
+    @staticmethod
+    def filter_args(**kwargs):
+
+        ar_args = AR.filter_args(**kwargs)
+        valid_args = (
+            "path_prefix",
+            "class_file",
+            "time_durs_file",
+            "time_durs_file2",
+            "min_chunk_length",
+            "max_chunk_length",
+            "return_fullseqs",
+            "part_idx",
+            "num_parts",
+        )
+        args = dict((k, kwargs[k]) for k in valid_args if k in kwargs)
+        args.update(ar_args)
+        return args
+
+    @staticmethod
+    def add_class_args(parser, prefix=None):
+        if prefix is not None:
+            outer_parser = parser
+            parser = ArgumentParser(prog="")
 
         parser.add_argument(
             "--class-file",
