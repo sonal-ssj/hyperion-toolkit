@@ -68,30 +68,6 @@ sign_nnet=$sign_nnet_dir/model_ep0020.pth
 
 
 # Network Training
-# if [ $stage -le 1 ]; then
-#     echo "Train two-stream signature network on all attacks"
-#     mkdir -p $sign_nnet_dir/log
-#     $cuda_cmd --gpu $ngpu $sign_nnet_dir/log/train.log \
-# 	hyp_utils/conda_env.sh --conda-env $HYP_ENV --num-gpus $ngpu \
-# 	torch-train-xvec-from-wav-two-stream.py  $sign_nnet_command --cfg $sign_nnet_config \
-# 	--audio-path $list_dir/trainval_wav.scp \
-# 	--time-durs-file $list_dir/trainval_utt2dur \
-# 	--train-list $list_dir/train_utt2attack \
-# 	--val-list $list_dir/val_utt2attack \
-# 	--class-file $list_dir/class_file \
-# 	--audio_path_OracleAdvNoise $list_dir_OracleAdvNoise/trainval_wav.scp \
-# 	--time_durs_file_OracleAdvNoise $list_dir/trainval_utt2dur \
-# 	--train_list_OracleAdvNoise $list_dir_OracleAdvNoise/train_utt2attack \
-# 	--val_list_OracleAdvNoise $list_dir_OracleAdvNoise/val_utt2attack \
-# 	--class_file_OracleAdvNoise $list_dir/class_file \
-# 	--batch-size $batch_size \
-# 	--num-workers $num_workers \
-# 	--grad-acc-steps $grad_acc_steps \
-# 	--num-gpus $ngpu \
-# 	--log-interval $log_interval \
-# 	--exp-path $sign_nnet_dir $args
-# fi
-
 if [ $stage -le 1 ]; then
     echo "Train two-stream signature network on all attacks"
     mkdir -p $sign_nnet_dir/log
